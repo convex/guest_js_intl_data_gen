@@ -1,0 +1,6 @@
+/target/
+/data/
+/dist/
+/.tmp/
+/.ruff_cache/
+__pycache__/
