@@ -63,6 +63,9 @@ aliases/likely subtags, and fallback parents. Generation uses:
 - requested locale families with descendants, plus a single `en-US` request to
   preserve its verbatim resolution;
 - maximal fallback deduplication;
+- an empty root (`und`) entry for each display-name marker, which CLDR's root
+  lacks, so a locale without names of its own falls back to "no names" instead
+  of missing data;
 - the recommended segmentation models and additional `search*` collations;
 - baked-exporter defaults, with overwrite and separate component crates enabled.
 

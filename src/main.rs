@@ -16,7 +16,12 @@ use std::{
 };
 
 use anyhow::Context;
-use icu_provider::{DataMarker, IterableDynamicDataProvider};
+use icu_provider::{
+    DataMarker, DynamicDataProvider, IterableDynamicDataProvider,
+    dynutil::UpcastDataPayload,
+    export::{ExportMarker, ExportableProvider},
+    prelude::*,
+};
 use icu_provider_export::{ExportMetadata, baked_exporter, prelude::*};
 use icu_provider_source::{CoverageLevel, SourceDataProvider};
 
@@ -65,6 +70,7 @@ fn main() -> anyhow::Result<()> {
     let locales = locales(&provider, locale_override.as_deref())?;
     let requests = locale_requests(&locales);
     let markers = markers();
+    let provider = WithEmptyRoots(provider);
     let exported = exported_locales(&provider, &fallbacker, &requests, &markers)?;
     eprintln!(
         "icu data locales: {} requested, {} exported",
@@ -237,6 +243,78 @@ fn markers() -> Vec<DataMarkerInfo> {
     .concat()
 }
 
+/// The source provider, plus an empty root entry for each display-name marker.
+///
+/// CLDR's root carries no display names, so the source provider has no `und`
+/// entry for them, and a locale with no names of its own then has nothing to
+/// fall back to at runtime. That is common for variants, which 46 modern
+/// locales name none of, and `LocaleDisplayNamesFormatter` loads the variant
+/// table even for tags without one. An empty root is what "no names" means to
+/// the formatters: each renders a subtag it finds no name for as the subtag.
+struct WithEmptyRoots(SourceDataProvider);
+
+fn empty_root(marker: DataMarkerInfo) -> Option<DataPayload<ExportMarker>> {
+    use icu_experimental::displaynames::provider::*;
+    fn empty<M: DataMarker>() -> DataPayload<ExportMarker>
+    where
+        ExportMarker: UpcastDataPayload<M>,
+        M::DataStruct: Default,
+    {
+        ExportMarker::upcast(DataPayload::<M>::from_owned(Default::default()))
+    }
+    [
+        (
+            LanguageDisplayNamesV1::INFO,
+            empty::<LanguageDisplayNamesV1> as fn() -> _,
+        ),
+        (LocaleDisplayNamesV1::INFO, empty::<LocaleDisplayNamesV1>),
+        (RegionDisplayNamesV1::INFO, empty::<RegionDisplayNamesV1>),
+        (ScriptDisplayNamesV1::INFO, empty::<ScriptDisplayNamesV1>),
+        (VariantDisplayNamesV1::INFO, empty::<VariantDisplayNamesV1>),
+    ]
+    .into_iter()
+    .find(|(info, _)| *info == marker)
+    .map(|(_, empty)| empty())
+}
+
+impl DynamicDataProvider<ExportMarker> for WithEmptyRoots {
+    fn load_data(
+        &self,
+        marker: DataMarkerInfo,
+        req: DataRequest,
+    ) -> Result<DataResponse<ExportMarker>, DataError> {
+        match self.0.load_data(marker, req) {
+            Err(error) if req.id.locale.is_unknown() && req.id.marker_attributes.is_empty() => {
+                let payload = empty_root(marker).ok_or(error)?;
+                Ok(DataResponse {
+                    metadata: Default::default(),
+                    payload,
+                })
+            }
+            result => result,
+        }
+    }
+}
+
+impl IterableDynamicDataProvider<ExportMarker> for WithEmptyRoots {
+    fn iter_ids_for_marker(
+        &self,
+        marker: DataMarkerInfo,
+    ) -> Result<BTreeSet<DataIdentifierCow<'_>>, DataError> {
+        let mut ids = self.0.iter_ids_for_marker(marker)?;
+        if empty_root(marker).is_some() {
+            ids.insert(DataIdentifierCow::default());
+        }
+        Ok(ids)
+    }
+}
+
+impl ExportableProvider for WithEmptyRoots {
+    fn supported_markers(&self) -> BTreeSet<DataMarkerInfo> {
+        self.0.supported_markers()
+    }
+}
+
 fn parse_locales(list: &OsStr) -> anyhow::Result<Vec<DataLocale>> {
     list.to_string_lossy()
         .split(',')
@@ -278,7 +356,7 @@ fn locale_requests(locales: &[DataLocale]) -> HashMap<DataLocale, bool> {
 /// Public language locales selected before payload deduplication. ICU's `und` and
 /// `und-*` identifiers are shared/region/script data, not JavaScript language availability.
 fn exported_locales(
-    provider: &SourceDataProvider,
+    provider: &impl IterableDynamicDataProvider<ExportMarker>,
     fallbacker: &LocaleFallbacker,
     requests: &HashMap<DataLocale, bool>,
     markers: &[DataMarkerInfo],
