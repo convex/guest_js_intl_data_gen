@@ -177,7 +177,7 @@ consumer's temporary copy of `Cargo.lock` is reconciled; dependency version,
 source, or checksum changes are rejected. The repository lockfile is unchanged.
 This is a compile smoke test, not a substitute for the consumer's runtime tests.
 
-Maintainers of `get-convex/guest_js_intl_data_gen` can:
+Maintainers of `convex/guest_js_intl_data_gen` can:
 
 1. Commit the reviewed generator, lockfile, toolchain, license notices, and tests.
    Keep generated data, build caches, and unrelated repository files out of Git.

@@ -102,7 +102,7 @@ def package(data: Path, destination: Path, commit: str) -> Path:
     )
     manifest: dict[str, Any] = {
         "format_version": 1,
-        "generator_repository": "https://github.com/get-convex/guest_js_intl_data_gen",
+        "generator_repository": "https://github.com/convex/guest_js_intl_data_gen",
         "generator_commit": commit,
         "toolchain": toolchain,
         "input_sha256": {
